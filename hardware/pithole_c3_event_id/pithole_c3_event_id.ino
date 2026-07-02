@@ -1,5 +1,6 @@
 #include <WiFi.h>
 
+// Nanti ganti nama sama password
 const char* ssid = "isti";
 const char* password = "1245678";
 
