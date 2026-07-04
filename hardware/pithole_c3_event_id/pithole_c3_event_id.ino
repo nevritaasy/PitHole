@@ -1,51 +1,30 @@
 #include <WiFi.h>
-
-// Nanti ganti nama sama password
-const char* ssid = "isti";
-const char* password = "1245678";
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#define WIFI_SSID "karajan"
+#define WIFI_PASSWORD "ISI_PASSWORD_HOTSPOT"
+#define WIFI_BACKUP_SSID ""
+#define WIFI_BACKUP_PASSWORD ""
+#define PITHOLE_DEVICE_KEY ""
+#define PITHOLE_BACKEND "https://example.invalid"
+#endif
 
 #define PIN_LED 8
-
 void setup() {
   Serial.begin(115200);
-
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
-
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(ssid, password);
-
-  Serial.println("Menghubungkan ke hotspot...");
-
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.println("Menghubungkan WiFi...");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
   digitalWrite(PIN_LED, LOW);
-
-  Serial.println("\nWiFi berhasil terhubung!");
-  Serial.print("SSID       : ");
-  Serial.println(WiFi.SSID());
-  Serial.print("IP Address : ");
+  Serial.println("\nWiFi tersambung");
   Serial.println(WiFi.localIP());
-  Serial.print("RSSI       : ");
-  Serial.print(WiFi.RSSI());
-  Serial.println(" dBm");
+  Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
 }
-
-void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(PIN_LED, HIGH);
-
-    Serial.println("WiFi terputus. Menghubungkan ulang...");
-    WiFi.reconnect();
-
-    delay(5000);
-  } else {
-    digitalWrite(PIN_LED, LOW);
-  }
-
-  delay(1000);
-}
+void loop() {}
