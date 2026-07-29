@@ -27,4 +27,9 @@ void setup() {
   Serial.println(WiFi.localIP());
   Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
 }
-void loop() {}
+void loop() {
+  delay(2000);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("IP=%s RSSI=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  } else Serial.println("WiFi terputus");
+}
