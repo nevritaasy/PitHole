@@ -18,10 +18,12 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.println("Menghubungkan WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
+  uint32_t mulai = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - mulai < 10000) {
     delay(500);
     Serial.print(".");
   }
+  if (WiFi.status() != WL_CONNECTED) { Serial.println("\nBelum tersambung"); return; }
   digitalWrite(PIN_LED, LOW);
   Serial.println("\nWiFi tersambung");
   Serial.println(WiFi.localIP());
@@ -31,5 +33,10 @@ void loop() {
   delay(2000);
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("IP=%s RSSI=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  } else Serial.println("WiFi terputus");
+  } else {
+    digitalWrite(PIN_LED, HIGH);
+    Serial.println("WiFi terputus, reconnect");
+    WiFi.reconnect();
+  }
+  if (WiFi.status() == WL_CONNECTED) digitalWrite(PIN_LED, LOW);
 }
