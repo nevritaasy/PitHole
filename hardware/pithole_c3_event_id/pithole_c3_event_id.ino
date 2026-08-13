@@ -1,4 +1,6 @@
 #include <WiFi.h>
+#include <WiFiMulti.h>
+#include <stdarg.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -10,33 +12,41 @@
 #define PITHOLE_BACKEND "https://example.invalid"
 #endif
 
+#define PIN_RX 20
+#define PIN_TX 21
 #define PIN_LED 8
+WiFiMulti wifiMulti;
+void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial Monitor USB
+  char b[200];
+  va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+  Serial.print("[C3] "); Serial.println(b);
+}
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200);                                   // USB: catatan + uji manual
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.println("Menghubungkan WiFi...");
-  uint32_t mulai = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - mulai < 10000) {
-    delay(500);
-    Serial.print(".");
-  }
-  if (WiFi.status() != WL_CONNECTED) { Serial.println("\nBelum tersambung"); return; }
-  digitalWrite(PIN_LED, LOW);
-  Serial.println("\nWiFi tersambung");
-  Serial.println(WiFi.localIP());
-  Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
+  // ESP32-C3 Super Mini: antena kecil + daya pancar penuh sering membuat koneksi putus-putus.
+  // Daya pancar diturunkan (masalah yang banyak dilaporkan pada board ini).
+  wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
+  if (WIFI_BACKUP_SSID[0]) wifiMulti.addAP(WIFI_BACKUP_SSID, WIFI_BACKUP_PASSWORD);
+  delay(1500);
+  lapor("PitHole C3 siap");
 }
 void loop() {
-  delay(2000);
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("IP=%s RSSI=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  } else {
-    digitalWrite(PIN_LED, HIGH);
-    Serial.println("WiFi terputus, reconnect");
-    WiFi.reconnect();
+  static uint32_t t_coba = 0;
+  static bool tersambung = false;
+  if (WiFi.status() != WL_CONNECTED && (t_coba == 0 || millis() - t_coba > 10000)) {
+    t_coba = millis();
+    wifiMulti.run(4000);                    // coba sambung (maks. 4 detik), lalu ulangi tiap 10 detik
   }
-  if (WiFi.status() == WL_CONNECTED) digitalWrite(PIN_LED, LOW);
+  bool s = WiFi.status() == WL_CONNECTED;
+  if (s != tersambung) {
+    tersambung = s;
+    digitalWrite(PIN_LED, s ? LOW : HIGH);
+    if (s) {
+      lapor("WiFi tersambung: %s, IP %s, %d dBm", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    }
+    else lapor("WiFi terputus");
+  }
 }
