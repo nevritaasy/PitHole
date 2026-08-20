@@ -26,8 +26,10 @@ void setup() {
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);                     // radio tidak "tidur" di sela paket: koneksi HTTPS lebih stabil
   // ESP32-C3 Super Mini: antena kecil + daya pancar penuh sering membuat koneksi putus-putus.
   // Daya pancar diturunkan (masalah yang banyak dilaporkan pada board ini).
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
   if (WIFI_BACKUP_SSID[0]) wifiMulti.addAP(WIFI_BACKUP_SSID, WIFI_BACKUP_PASSWORD);
   delay(1500);
@@ -45,6 +47,7 @@ void loop() {
     tersambung = s;
     digitalWrite(PIN_LED, s ? LOW : HIGH);
     if (s) {
+      WiFi.setTxPower(WIFI_POWER_8_5dBm);   // pastikan tetap rendah setelah tersambung
       lapor("WiFi tersambung: %s, IP %s, %d dBm", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
     else lapor("WiFi terputus");
