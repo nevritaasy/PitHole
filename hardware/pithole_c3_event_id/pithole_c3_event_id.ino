@@ -22,6 +22,7 @@ void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial M
   Serial.print("[C3] "); Serial.println(b);
 }
 void setup() {
+  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);
   Serial.begin(115200);                                   // USB: catatan + uji manual
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
@@ -52,4 +53,6 @@ void loop() {
     }
     else lapor("WiFi terputus");
   }
+  // Uji byte mentah; jangan gunakan untuk operasi backend.
+  while (Serial1.available()) Serial1.write(Serial1.read());
 }
