@@ -21,9 +21,32 @@ void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial M
   va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
   Serial.print("[C3] "); Serial.println(b);
 }
+void cmd_ping(Stream& out) {
+  out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
+             WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, 0);
+}
+void jalankan(Stream& out, char* b) {
+  while (*b == ' ') b++;
+  for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper((unsigned char)*c);
+  for (int n = strlen(b); n > 0 && b[n - 1] == ' '; n--) b[n - 1] = 0;
+  if (!strcmp(b, "PING")) cmd_ping(out);
+  else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
+}
+struct Pembaca {
+  char b[128]; int n = 0;
+  void layani(Stream& s) {
+    while (s.available()) {
+      char c = s.read();
+      if (c == '\r') continue;
+      if (c == '\n') { b[n] = 0; n = 0; jalankan(s, b); }
+      else if (n < (int)sizeof(b) - 1) b[n++] = c;
+    }
+  }
+};
+Pembaca dari_stm32, dari_usb;
 void setup() {
-  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);
   Serial.begin(115200);                                   // USB: catatan + uji manual
+  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);      // ke STM32
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   WiFi.mode(WIFI_STA);
@@ -53,6 +76,6 @@ void loop() {
     }
     else lapor("WiFi terputus");
   }
-  // Uji byte mentah; jangan gunakan untuk operasi backend.
-  while (Serial1.available()) Serial1.write(Serial1.read());
+  dari_stm32.layani(Serial1);
+  dari_usb.layani(Serial);
 }
