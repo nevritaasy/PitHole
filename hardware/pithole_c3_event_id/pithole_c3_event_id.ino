@@ -25,11 +25,20 @@ void cmd_ping(Stream& out) {
   out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
              WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, 0);
 }
+void cmd_lubang(Stream& out, char* arg) {
+  long lat, lon;
+  char ekstra;
+  if (sscanf(arg, "%ld,%ld %c", &lat, &lon, &ekstra) != 2) {
+    out.println("GAGAL,format koordinat"); return;
+  }
+  out.printf("KOORD,%ld,%ld\n", lat, lon);
+}
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
   for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper((unsigned char)*c);
   for (int n = strlen(b); n > 0 && b[n - 1] == ' '; n--) b[n - 1] = 0;
   if (!strcmp(b, "PING")) cmd_ping(out);
+  else if (!strncmp(b, "LUBANG,", 7)) cmd_lubang(out, b + 7);
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
