@@ -16,6 +16,13 @@
 #define PIN_TX 21
 #define PIN_LED 8
 WiFiMulti wifiMulti;
+const char* BACKEND = PITHOLE_BACKEND;
+const char* DEVICE_ID = "SEPEDA01";
+const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;
+#define MAKS_ANTRE 20
+struct Lubang { char tgl[12]; char jam[14]; long lat, lon; };
+Lubang antre[MAKS_ANTRE];
+int n_antre = 0;
 void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial Monitor USB
   char b[200];
   va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
@@ -23,22 +30,33 @@ void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial M
 }
 void cmd_ping(Stream& out) {
   out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
-             WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, 0);
+             WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, n_antre);
 }
 void cmd_lubang(Stream& out, char* arg) {
-  long lat, lon;
-  char ekstra;
+  if (n_antre >= MAKS_ANTRE) { out.println("GAGAL,antrean penuh"); return; }
+  long lat, lon; char ekstra;
   if (sscanf(arg, "%ld,%ld %c", &lat, &lon, &ekstra) != 2) {
     out.println("GAGAL,format koordinat"); return;
   }
-  out.printf("KOORD,%ld,%ld\n", lat, lon);
+  Lubang& L = antre[n_antre++];
+  L.tgl[0] = L.jam[0] = 0; L.lat = lat; L.lon = lon;
+  out.printf("TERIMA,%d\n", n_antre);
+}
+void cmd_kirim(Stream& out) {
+  // Tampilkan isi antrean tanpa mengunggah atau menghapusnya.
+  for (int i = 0; i < n_antre; i++) {
+    out.printf("%ld,%ld\n", antre[i].lat, antre[i].lon);
+  }
+  out.printf("SIMULASI,%d\n", n_antre);
 }
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
   for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper((unsigned char)*c);
   for (int n = strlen(b); n > 0 && b[n - 1] == ' '; n--) b[n - 1] = 0;
   if (!strcmp(b, "PING")) cmd_ping(out);
-  else if (!strncmp(b, "LUBANG,", 7)) cmd_lubang(out, b + 7);
+  else if (!strncmp(b, "LUBANG", 6) && (b[6] == ',' || b[6] == ' ')) cmd_lubang(out, b + 7);
+  else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
+  else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
