@@ -34,12 +34,28 @@ void cmd_ping(Stream& out) {
 }
 void cmd_lubang(Stream& out, char* arg) {
   if (n_antre >= MAKS_ANTRE) { out.println("GAGAL,antrean penuh"); return; }
-  long lat, lon; char ekstra;
-  if (sscanf(arg, "%ld,%ld %c", &lat, &lon, &ekstra) != 2) {
-    out.println("GAGAL,format koordinat"); return;
+  char asli[100];
+  strlcpy(asli, arg, sizeof asli);
+  char* p[4];
+  int k = 0;
+  for (char* t = strtok(arg, ", ;\t"); t && k < 4; t = strtok(NULL, ", ;\t")) p[k++] = t;
+  Lubang& L = antre[n_antre];
+  if (k == 4) {
+    strlcpy(L.tgl, p[0], sizeof L.tgl);
+    strlcpy(L.jam, p[1], sizeof L.jam);
+    L.lat = atol(p[2]); L.lon = atol(p[3]);
+  } else if (k == 2) {
+    L.tgl[0] = 0; L.jam[0] = 0;
+    L.lat = atol(p[0]); L.lon = atol(p[1]);
+  } else {
+    out.printf("GAGAL,format LUBANG salah (diterima: \"%s\"). Contoh: LUBANG,2026-10-28,07:15:32,-7771300,110377600\n", asli);
+    return;
   }
-  Lubang& L = antre[n_antre++];
-  L.tgl[0] = L.jam[0] = 0; L.lat = lat; L.lon = lon;
+  if (L.lat == 0 || L.lon == 0 || labs(L.lat) > 90000000L || labs(L.lon) > 180000000L) {
+    out.println("GAGAL,koordinat tidak masuk akal (pakai mikroderajat, mis. -7771300)");
+    return;
+  }
+  n_antre++;
   out.printf("TERIMA,%d\n", n_antre);
 }
 void cmd_kirim(Stream& out) {
