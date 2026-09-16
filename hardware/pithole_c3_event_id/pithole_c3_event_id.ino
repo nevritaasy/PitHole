@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <stdarg.h>
+#include <ArduinoJson.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -59,11 +60,21 @@ void cmd_lubang(Stream& out, char* arg) {
   out.printf("TERIMA,%d\n", n_antre);
 }
 void cmd_kirim(Stream& out) {
-  // Tampilkan isi antrean tanpa mengunggah atau menghapusnya.
+  if (n_antre == 0) { out.println("SIMULASI,0"); return; }
+  // susun JSON sesuai backend: {"device_id":..,"potholes":[{"lat":..,"lon":..,"detected_at":..}]}
+  JsonDocument doc;
+  doc["device_id"] = DEVICE_ID;
+  JsonArray arr = doc["potholes"].to<JsonArray>();
   for (int i = 0; i < n_antre; i++) {
-    out.printf("%ld,%ld\n", antre[i].lat, antre[i].lon);
+    JsonObject o = arr.add<JsonObject>();
+    o["lat"] = serialized(String(antre[i].lat / 1e6, 6));
+    o["lon"] = serialized(String(antre[i].lon / 1e6, 6));
   }
-  out.printf("SIMULASI,%d\n", n_antre);
+  String badan;
+  serializeJson(doc, badan);
+
+  out.println(badan);
+  out.printf("SIMULASI,%d (belum dikirim)\n", n_antre);
 }
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
