@@ -69,6 +69,12 @@ void cmd_kirim(Stream& out) {
     JsonObject o = arr.add<JsonObject>();
     o["lat"] = serialized(String(antre[i].lat / 1e6, 6));
     o["lon"] = serialized(String(antre[i].lon / 1e6, 6));
+    // waktu dari GPS; "2026-01-01" = lubang uji tanpa GPS -> biarkan backend memakai waktu server
+    if (strlen(antre[i].tgl) == 10 && strncmp(antre[i].tgl, "2026-01-01", 10) != 0 && strlen(antre[i].jam) >= 8) {
+      char t[32];
+      snprintf(t, sizeof t, "%sT%.8sZ", antre[i].tgl, antre[i].jam);   // jam dipotong ke detik
+      o["detected_at"] = t;
+    }
   }
   String badan;
   serializeJson(doc, badan);
