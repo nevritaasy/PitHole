@@ -1,122 +1,116 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import React, { useState, useEffect } from 'react';
+import Navbar from './components/Navbar';
+import MapView from './components/MapView';
+import PotholeList from './components/PotholeList';
+import PotholeDetail from './components/PotholeDetail';
+import Footer from './components/Footer';
+import IoTTestModal from './components/IoTTestModal';
+import './App.css';
+
+const API_BASE_URL = 'http://localhost:5000/api/v1/potholes';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [potholes, setPotholes] = useState([]);
+  const [selectedPothole, setSelectedPothole] = useState(null);
+  const [detailPothole, setDetailPothole] = useState(null);
+  const [viewMode, setViewMode] = useState('home'); // 'home' | 'detail'
+  const [activeFilter, setActiveFilter] = useState(null);
+  const [lastSyncText, setLastSyncText] = useState('5 menit yang lalu');
+  const [loading, setLoading] = useState(true);
+
+  // Ambil data potholes dari Backend Express
+  const fetchPotholes = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(API_BASE_URL);
+      const data = await res.json();
+      if (res.ok && data.potholes) {
+        setPotholes(data.potholes);
+        setLastSyncText('Baru saja');
+      }
+    } catch (err) {
+      console.error('Gagal mengambil data potholes:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPotholes();
+
+    // Auto-refresh setiap 30 detik untuk update crowdsourcing real-time
+    const interval = setInterval(() => {
+      fetchPotholes();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSelectPothole = (item) => {
+    setSelectedPothole(item);
+  };
+
+  const handleOpenDetail = (item) => {
+    setDetailPothole(item);
+    setViewMode('detail');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleBackToHome = () => {
+    setViewMode('home');
+    setDetailPothole(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAdminClick = () => {
+    alert('PitHole Admin Dashboard: Anda dapat mengubah status laporan melalui sistem API / backend admin.');
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app-container">
+      {/* Header Navigation */}
+      <Navbar onResetToHome={handleBackToHome} onAdminClick={handleAdminClick} />
 
-      <div className="ticks"></div>
+      <main className="main-content">
+        {viewMode === 'home' ? (
+          <>
+            {/* Page Header Title */}
+            <h1 className="page-header-title">Peta Sebaran Lubang</h1>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+            {/* Map Interactive Component (Gambar Mockup 1 & 2) */}
+            <MapView
+              potholes={potholes}
+              selectedPothole={selectedPothole}
+              onSelectPothole={handleSelectPothole}
+              onOpenDetail={handleOpenDetail}
+              onCloseSelection={() => setSelectedPothole(null)}
+              lastSyncText={lastSyncText}
+            />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+            {/* Admin Legend & Latest Detections Dashboard */}
+            <PotholeList
+              potholes={potholes}
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+              onSelectPothole={(item) => {
+                handleSelectPothole(item);
+                handleOpenDetail(item);
+              }}
+            />
+          </>
+        ) : (
+          /* Detail Page View (Gambar Mockup 3) */
+          <PotholeDetail pothole={detailPothole} onBack={handleBackToHome} />
+        )}
+      </main>
+
+      {/* IoT Floating Simulator Widget */}
+      <IoTTestModal onRefreshData={fetchPotholes} />
+
+      {/* Navy Dark Footer */}
+      <Footer />
+    </div>
+  );
 }
 
-export default App
+export default App;
