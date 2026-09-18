@@ -2,6 +2,8 @@
 #include <WiFiMulti.h>
 #include <stdarg.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -28,6 +30,26 @@ void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial M
   char b[200];
   va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
   Serial.print("[C3] "); Serial.println(b);
+}
+bool siapkan_http(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
+  tls.setInsecure();                        // tanpa cek sertifikat (cukup untuk prototipe)
+  tls.setHandshakeTimeout(15);              // jabat tangan HTTPS boleh sampai 15 s (hotspot kadang lambat)
+  http.setConnectTimeout(15000);            // bawaan hanya 5 s -> sering "connection refused"
+  http.setTimeout(20000);
+  http.useHTTP10(true);                     // balasan berakhir saat koneksi ditutup (mudah dibaca bertahap)
+  if (!http.begin(tls, url)) return false;
+  if (DEVICE_KEY[0]) http.addHeader("X-Device-Key", DEVICE_KEY);
+  return true;
+}
+void cmd_probe(Stream& out) {
+  if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
+  WiFiClientSecure tls; HTTPClient http;
+  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/sync")) {
+    out.println("GAGAL,http.begin"); return;
+  }
+  int kode = http.GET();
+  out.printf("HTTP,%d\n", kode);
+  http.end();
 }
 void cmd_ping(Stream& out) {
   out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
@@ -90,6 +112,7 @@ void jalankan(Stream& out, char* b) {
   else if (!strncmp(b, "LUBANG", 6) && (b[6] == ',' || b[6] == ' ')) cmd_lubang(out, b + 7);
   else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
   else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
+  else if (!strcmp(b, "PROBE")) cmd_probe(out);
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
