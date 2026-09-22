@@ -1,9 +1,9 @@
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <stdarg.h>
-#include <ArduinoJson.h>
-#include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -41,16 +41,6 @@ bool siapkan_http(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
   if (DEVICE_KEY[0]) http.addHeader("X-Device-Key", DEVICE_KEY);
   return true;
 }
-void cmd_probe(Stream& out) {
-  if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
-  WiFiClientSecure tls; HTTPClient http;
-  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/sync")) {
-    out.println("GAGAL,http.begin"); return;
-  }
-  int kode = http.GET();
-  out.printf("HTTP,%d\n", kode);
-  http.end();
-}
 void cmd_ping(Stream& out) {
   out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
              WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, n_antre);
@@ -82,7 +72,9 @@ void cmd_lubang(Stream& out, char* arg) {
   out.printf("TERIMA,%d\n", n_antre);
 }
 void cmd_kirim(Stream& out) {
-  if (n_antre == 0) { out.println("SIMULASI,0"); return; }
+  if (n_antre == 0) { out.println("OK,0,0,0"); return; }
+  if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
+
   // susun JSON sesuai backend: {"device_id":..,"potholes":[{"lat":..,"lon":..,"detected_at":..}]}
   JsonDocument doc;
   doc["device_id"] = DEVICE_ID;
@@ -101,8 +93,34 @@ void cmd_kirim(Stream& out) {
   String badan;
   serializeJson(doc, badan);
 
-  out.println(badan);
-  out.printf("SIMULASI,%d (belum dikirim)\n", n_antre);
+  WiFiClientSecure tls;
+  HTTPClient http;
+  uint32_t t0 = millis();
+  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/batch-upload")) {
+    out.println("GAGAL,http.begin"); return;
+  }
+  http.addHeader("Content-Type", "application/json");
+  int kode = http.POST(badan);
+  if (kode != 200) {
+    String isi = kode > 0 ? http.getString().substring(0, 80) : http.errorToString(kode);
+    isi.replace("\n", " ");
+    out.printf("GAGAL,http %d %s\n", kode, isi.c_str());
+    lapor("kirim GAGAL http %d: %s", kode, isi.c_str());
+    http.end();
+    return;                                  // antrean tidak dihapus: STM32 akan mengirim ulang
+  }
+  JsonDocument saring, hasil;               // ambil hanya yang perlu dari balasan
+  saring["status"] = true;
+  saring["details"][0]["action"] = true;
+  saring["details"][0]["pothole"]["id"] = true;
+  DeserializationError e = deserializeJson(hasil, http.getStream(), DeserializationOption::Filter(saring));
+  http.end();
+  if (e || strcmp(hasil["status"] | "", "success") != 0) {
+    out.printf("GAGAL,balasan backend tidak dikenal (%s)\n", e ? e.c_str() : "status bukan success");
+    return;
+  }
+  out.printf("UPLOAD_OK,%d\n", n_antre);
+  n_antre = 0;
 }
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
@@ -112,7 +130,6 @@ void jalankan(Stream& out, char* b) {
   else if (!strncmp(b, "LUBANG", 6) && (b[6] == ',' || b[6] == ' ')) cmd_lubang(out, b + 7);
   else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
   else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
-  else if (!strcmp(b, "PROBE")) cmd_probe(out);
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
