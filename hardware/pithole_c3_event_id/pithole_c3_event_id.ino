@@ -119,7 +119,16 @@ void cmd_kirim(Stream& out) {
     out.printf("GAGAL,balasan backend tidak dikenal (%s)\n", e ? e.c_str() : "status bukan success");
     return;
   }
-  out.printf("UPLOAD_OK,%d\n", n_antre);
+  int baru = 0, gabung = 0;
+  for (JsonObject d : hasil["details"].as<JsonArray>()) {
+    const char* a = d["action"] | "";
+    if (!strcmp(a, "created")) baru++;
+    else if (!strcmp(a, "updated")) gabung++;
+    int32_t id = d["pothole"]["id"] | 0;
+    lapor("  %s id=%d", a, (int)id);
+  }
+  lapor("kirim %d lubang OK (%d baru, %d digabung) %lu ms", n_antre, baru, gabung, millis() - t0);
+  out.printf("OK,%d,%d,%d\n", n_antre, baru, gabung);
   n_antre = 0;
 }
 void jalankan(Stream& out, char* b) {
