@@ -31,6 +31,17 @@ void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial M
   va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
   Serial.print("[C3] "); Serial.println(b);
 }
+long iso_ke_epoch(const char* s) {
+  int y, mo, d, h, mi, se;
+  if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &se) != 6) return 0;
+  y -= mo <= 2;
+  long era = (y >= 0 ? y : y - 399) / 400;
+  long yoe = y - era * 400;
+  long doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  long hari = era * 146097 + doe - 719468;
+  return hari * 86400L + h * 3600L + mi * 60L + se;
+}
 bool siapkan_http(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
   tls.setInsecure();                        // tanpa cek sertifikat (cukup untuk prototipe)
   tls.setHandshakeTimeout(15);              // jabat tangan HTTPS boleh sampai 15 s (hotspot kadang lambat)
@@ -131,6 +142,43 @@ void cmd_kirim(Stream& out) {
   out.printf("OK,%d,%d,%d\n", n_antre, baru, gabung);
   n_antre = 0;
 }
+void cmd_db(Stream& out) {
+  if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
+  WiFiClientSecure tls;
+  HTTPClient http;
+  uint32_t t0 = millis();
+  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/sync")) {
+    out.println("GAGAL,http.begin"); return;
+  }
+  int kode = http.GET();
+  if (kode != 200) {
+    out.printf("GAGAL,http %d %s\n", kode, kode < 0 ? http.errorToString(kode).c_str() : "");
+    http.end();
+    return;
+  }
+  // balasan ±160 KB: dibaca bertahap, hanya kolom yang perlu disimpan di RAM
+  JsonDocument saring, doc;
+  saring["sync_time"] = true;
+  JsonObject s = saring["potholes"][0].to<JsonObject>();
+  s["id"] = true; s["lat"] = true; s["lon"] = true; s["status"] = true; s["source"] = true;
+  DeserializationError e = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(saring));
+  http.end();
+  if (e) { out.printf("GAGAL,json %s\n", e.c_str()); return; }
+
+  out.println("id,lat_mikro,lon_mikro,status");
+  int n = 0, semua = 0;
+  for (JsonObject p : doc["potholes"].as<JsonArray>()) {
+    semua++;
+    int32_t id = p["id"] | 0;
+    const char* st = p["status"] | "active";
+    out.printf("%d,%ld,%ld,%s\n", (int)id,
+               lround((double)(p["lat"] | 0.0) * 1e6), lround((double)(p["lon"] | 0.0) * 1e6),
+               st);
+    if (++n % 32 == 0) delay(20);           // beri waktu STM32 menulis kartu SD
+  }
+  lapor("database: %d dari %d lubang dikirim ke STM32, %lu ms, RAM bebas %u",
+        n, semua, millis() - t0, ESP.getFreeHeap());
+}
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
   for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper((unsigned char)*c);
@@ -139,6 +187,7 @@ void jalankan(Stream& out, char* b) {
   else if (!strncmp(b, "LUBANG", 6) && (b[6] == ',' || b[6] == ' ')) cmd_lubang(out, b + 7);
   else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
   else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
+  else if (!strcmp(b, "DB?")) cmd_db(out);
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
