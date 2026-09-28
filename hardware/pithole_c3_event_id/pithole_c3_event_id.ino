@@ -171,9 +171,12 @@ void cmd_db(Stream& out) {
     semua++;
     int32_t id = p["id"] | 0;
     const char* st = p["status"] | "active";
+    // Lubang yang sudah diperbaiki TETAP dikirim dengan status "resolved": STM32 tidak membunyikannya
+    // dan tidak memakai salinan lokalnya (LBARU.CSV) untuk lubang itu.
+    bool beres = !strcmp(st, "repaired") || !strcmp(st, "resolved") || !strcmp(st, "fixed");
     out.printf("%d,%ld,%ld,%s\n", (int)id,
                lround((double)(p["lat"] | 0.0) * 1e6), lround((double)(p["lon"] | 0.0) * 1e6),
-               st);
+               beres ? "resolved" : "baru");
     if (++n % 32 == 0) delay(20);           // beri waktu STM32 menulis kartu SD
   }
   lapor("database: %d dari %d lubang dikirim ke STM32, %lu ms, RAM bebas %u",
