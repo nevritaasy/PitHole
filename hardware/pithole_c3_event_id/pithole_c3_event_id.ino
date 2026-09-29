@@ -179,6 +179,7 @@ void cmd_db(Stream& out) {
                beres ? "resolved" : "baru");
     if (++n % 32 == 0) delay(20);           // beri waktu STM32 menulis kartu SD
   }
+  out.printf("VERSI,%ld\n", iso_ke_epoch(doc["sync_time"] | ""));
   lapor("database: %d dari %d lubang dikirim ke STM32, %lu ms, RAM bebas %u",
         n, semua, millis() - t0, ESP.getFreeHeap());
 }
