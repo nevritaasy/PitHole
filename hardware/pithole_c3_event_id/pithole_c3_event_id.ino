@@ -1,3 +1,6 @@
+// P19_HTTP_Retry: Retry POST pada connection refused dan GET pada error transport
+// Rekonstruksi untuk pengujian, bukan riwayat pengembangan historis.
+// Versi rekonstruksi bertahap untuk pengujian, bukan arsip historis.
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <stdarg.h>
@@ -107,11 +110,16 @@ void cmd_kirim(Stream& out) {
   WiFiClientSecure tls;
   HTTPClient http;
   uint32_t t0 = millis();
-  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/batch-upload")) {
-    out.println("GAGAL,http.begin"); return;
+  int kode = -1;
+  for (int coba = 1; coba <= 3; coba++) {            // gagal SEBELUM terkirim (kode < 0): aman dicoba ulang
+    if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/batch-upload")) { out.println("GAGAL,http.begin"); return; }
+    http.addHeader("Content-Type", "application/json");
+    kode = http.POST(badan);
+    if (kode != HTTPC_ERROR_CONNECTION_REFUSED) break;   // hanya ulangi kalau koneksi belum terbentuk
+    lapor("KIRIM percobaan %d: koneksi gagal", coba);
+    http.end();
+    delay(1000);
   }
-  http.addHeader("Content-Type", "application/json");
-  int kode = http.POST(badan);
   if (kode != 200) {
     String isi = kode > 0 ? http.getString().substring(0, 80) : http.errorToString(kode);
     isi.replace("\n", " ");
@@ -147,10 +155,15 @@ void cmd_db(Stream& out) {
   WiFiClientSecure tls;
   HTTPClient http;
   uint32_t t0 = millis();
-  if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/sync")) {
-    out.println("GAGAL,http.begin"); return;
+  int kode = -1;
+  for (int coba = 1; coba <= 3; coba++) {            // koneksi pertama kadang gagal: coba sampai 3 kali
+    if (!siapkan_http(http, tls, String(BACKEND) + "/api/v1/potholes/sync")) { out.println("GAGAL,http.begin"); return; }
+    kode = http.GET();
+    if (kode > 0) break;
+    lapor("DB? percobaan %d gagal: %s", coba, http.errorToString(kode).c_str());
+    http.end();
+    delay(1000);
   }
-  int kode = http.GET();
   if (kode != 200) {
     out.printf("GAGAL,http %d %s\n", kode, kode < 0 ? http.errorToString(kode).c_str() : "");
     http.end();
