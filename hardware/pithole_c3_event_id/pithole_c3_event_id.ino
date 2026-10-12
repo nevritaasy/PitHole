@@ -1,12 +1,10 @@
-// P19_HTTP_Retry: Retry POST pada connection refused dan GET pada error transport
-// Rekonstruksi untuk pengujian, bukan riwayat pengembangan historis.
-// Versi rekonstruksi bertahap untuk pengujian, bukan arsip historis.
 #include <WiFi.h>
 #include <WiFiMulti.h>
 #include <stdarg.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -26,6 +24,25 @@ const char* BACKEND = PITHOLE_BACKEND;
 const char* DEVICE_ID = "SEPEDA01";
 const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;
 #define MAKS_ANTRE 20
+const bool MODE_UJI = false;
+Preferences mem;
+#define MAKS_ID 300
+int32_t id_alat[MAKS_ID];
+int n_id = 0;
+
+void id_muat() {
+  n_id = mem.getBytes("ids", id_alat, sizeof id_alat) / sizeof(int32_t);
+}
+bool id_kenal(int32_t id) {
+  for (int i = 0; i < n_id; i++) if (id_alat[i] == id) return true;
+  return false;
+}
+void id_ingat(int32_t id) {
+  if (id <= 0 || id_kenal(id)) return;
+  if (n_id >= MAKS_ID) { memmove(id_alat, id_alat + 1, (MAKS_ID - 1) * sizeof(int32_t)); n_id--; }
+  id_alat[n_id++] = id;
+  mem.putBytes("ids", id_alat, n_id * sizeof(int32_t));
+}
 struct Lubang { char tgl[12]; char jam[14]; long lat, lon; };
 Lubang antre[MAKS_ANTRE];
 int n_antre = 0;
@@ -144,6 +161,7 @@ void cmd_kirim(Stream& out) {
     if (!strcmp(a, "created")) baru++;
     else if (!strcmp(a, "updated")) gabung++;
     int32_t id = d["pothole"]["id"] | 0;
+    id_ingat(id);                            // dibuat ATAU digabung: lubang ini pernah dideteksi alat
     lapor("  %s id=%d", a, (int)id);
   }
   lapor("kirim %d lubang OK (%d baru, %d digabung) %lu ms", n_antre, baru, gabung, millis() - t0);
@@ -184,6 +202,8 @@ void cmd_db(Stream& out) {
     semua++;
     int32_t id = p["id"] | 0;
     const char* st = p["status"] | "active";
+    const char* src = p["source"] | "";
+    if (MODE_UJI && !id_kenal(id) && strncmp(src, "alat:", 5) != 0) continue;   // mode uji: hanya lubang alat ini
     // Lubang yang sudah diperbaiki TETAP dikirim dengan status "resolved": STM32 tidak membunyikannya
     // dan tidak memakai salinan lokalnya (LBARU.CSV) untuk lubang itu.
     bool beres = !strcmp(st, "repaired") || !strcmp(st, "resolved") || !strcmp(st, "fixed");
@@ -193,8 +213,8 @@ void cmd_db(Stream& out) {
     if (++n % 32 == 0) delay(20);           // beri waktu STM32 menulis kartu SD
   }
   out.printf("VERSI,%ld\n", iso_ke_epoch(doc["sync_time"] | ""));
-  lapor("database: %d dari %d lubang dikirim ke STM32, %lu ms, RAM bebas %u",
-        n, semua, millis() - t0, ESP.getFreeHeap());
+  lapor("database: %d dari %d lubang dikirim ke STM32 (MODE_UJI %d), %lu ms, RAM bebas %u",
+        n, semua, MODE_UJI, millis() - t0, ESP.getFreeHeap());
 }
 void jalankan(Stream& out, char* b) {
   while (*b == ' ') b++;
@@ -205,6 +225,12 @@ void jalankan(Stream& out, char* b) {
   else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
   else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
   else if (!strcmp(b, "DB?")) cmd_db(out);
+else if (!strcmp(b, "ID?")) {
+    out.printf("ID,%d:", n_id);
+    for (int i = 0; i < n_id; i++) out.printf(" %ld", (long)id_alat[i]);
+    out.println();
+  }
+  else if (!strcmp(b, "LUPA")) { n_id = 0; mem.remove("ids"); out.println("ID,0"); }
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
 struct Pembaca {
@@ -222,6 +248,8 @@ Pembaca dari_stm32, dari_usb;
 void setup() {
   Serial.begin(115200);                                   // USB: catatan + uji manual
   Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);      // ke STM32
+  mem.begin("pithole", false);
+  id_muat();
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);
   WiFi.mode(WIFI_STA);
