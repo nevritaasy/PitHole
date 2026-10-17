@@ -24,7 +24,7 @@ const char* BACKEND = PITHOLE_BACKEND;
 const char* DEVICE_ID = "SEPEDA01";
 const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;
 #define MAKS_ANTRE 20
-const bool MODE_UJI = false;
+const bool MODE_UJI = true;
 Preferences mem;
 #define MAKS_ID 300
 int32_t id_alat[MAKS_ID];
