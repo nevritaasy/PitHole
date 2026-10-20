@@ -1,10 +1,12 @@
+// Tools: Board "ESP32C3 Dev Module", USB CDC On Boot: Enabled.
+// Library: ArduinoJson (Benoit Blanchon) versi 7 -- pasang dari Library Manager.
 #include <WiFi.h>
 #include <WiFiMulti.h>
-#include <stdarg.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <stdarg.h>
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -16,16 +18,33 @@
 #define PITHOLE_BACKEND "https://example.invalid"
 #endif
 
-#define PIN_RX 20
-#define PIN_TX 21
-#define PIN_LED 8
-WiFiMulti wifiMulti;
-const char* BACKEND = PITHOLE_BACKEND;
+
+// ======================= PENGATURAN =======================
+const char* BACKEND   = PITHOLE_BACKEND;
 const char* DEVICE_ID = "SEPEDA01";
-const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;
-#define MAKS_ANTRE 20
+const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;          // isi kalau backend sudah memakai API key (header X-Device-Key)
+// MODE_UJI true  = alat hanya memakai lubang yang PERNAH DIKIRIM ALAT INI (id-nya diingat di
+//                  memori C3, tidak hilang walau dimatikan), untuk uji 3 putaran
+// MODE_UJI false = semua lubang di database (untuk expo / pemakaian biasa)
 const bool MODE_UJI = true;
+// WiFi: dari daftar ini, yang sinyalnya PALING KUAT yang dipakai (bukan urutan).
+struct { const char* ssid; const char* pass; } DAFTAR_WIFI[] = {
+  {WIFI_SSID, WIFI_PASSWORD},
+  {WIFI_BACKUP_SSID, WIFI_BACKUP_PASSWORD},
+};
+// ==========================================================
+
+#define PIN_RX   20
+#define PIN_TX   21
+#define PIN_LED  8          // LED biru Super Mini (nyala = LOW): nyala = WiFi tersambung
+#define MAKS_ANTRE 20
+
+WiFiMulti wifiMulti;
 Preferences mem;
+
+// ---------- id lubang milik alat ini (MODE_UJI) ----------
+// Backend MENGGABUNG laporan < 3 m dan menggeser koordinatnya (rata-rata), jadi koordinat di
+// database tidak sama persis dengan yang dikirim. Id-nya tetap -> pencocokan pakai id.
 #define MAKS_ID 300
 int32_t id_alat[MAKS_ID];
 int n_id = 0;
@@ -43,14 +62,23 @@ void id_ingat(int32_t id) {
   id_alat[n_id++] = id;
   mem.putBytes("ids", id_alat, n_id * sizeof(int32_t));
 }
-struct Lubang { char tgl[12]; char jam[14]; long lat, lon; };
+// event_id = tanda unik SATU lubang, dibuat dari ISI catatannya (alat-tanggal-jam GPS-lat-lon),
+// contoh "SEPEDA01-2026-11-15-09:37:29.00--7766452-110374747".
+// Karena isinya sama setiap kali STM32 mengirim ulang baris yang sama dari LBARU.CSV, event_id-nya
+// juga sama -> backend bisa mengenali kiriman ulang (idempotency) dan tidak menaikkan report_count dua kali.
+// Tidak memakai millis()/nomor antrean: keduanya berubah saat dikirim ulang dan berulang setelah C3 restart.
+struct Lubang { char tgl[12]; char jam[14]; long lat, lon; char eid[64]; };
 Lubang antre[MAKS_ANTRE];
 int n_antre = 0;
+
+// ---------- utilitas ----------
 void lapor(const char* fmt, ...) {          // catatan untuk dilihat di Serial Monitor USB
   char b[200];
   va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
   Serial.print("[C3] "); Serial.println(b);
 }
+
+// "2026-10-28T06:52:25..." -> detik sejak 1970 (UTC)
 long iso_ke_epoch(const char* s) {
   int y, mo, d, h, mi, se;
   if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &se) != 6) return 0;
@@ -62,6 +90,7 @@ long iso_ke_epoch(const char* s) {
   long hari = era * 146097 + doe - 719468;
   return hari * 86400L + h * 3600L + mi * 60L + se;
 }
+
 bool siapkan_http(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
   tls.setInsecure();                        // tanpa cek sertifikat (cukup untuk prototipe)
   tls.setHandshakeTimeout(15);              // jabat tangan HTTPS boleh sampai 15 s (hotspot kadang lambat)
@@ -72,10 +101,15 @@ bool siapkan_http(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
   if (DEVICE_KEY[0]) http.addHeader("X-Device-Key", DEVICE_KEY);
   return true;
 }
+
+// ---------- perintah ----------
 void cmd_ping(Stream& out) {
   out.printf("PONG,%d,%d,%d\n", WiFi.status() == WL_CONNECTED ? 1 : 0,
              WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0, n_antre);
 }
+
+// arg = "tgl,jam,lat_mikro,lon_mikro"  atau cukup "lat_mikro,lon_mikro" (waktu diisi backend).
+// Pemisah boleh koma, spasi, atau titik koma.
 void cmd_lubang(Stream& out, char* arg) {
   if (n_antre >= MAKS_ANTRE) { out.println("GAGAL,antrean penuh"); return; }
   char asli[100];
@@ -99,9 +133,16 @@ void cmd_lubang(Stream& out, char* arg) {
     out.println("GAGAL,koordinat tidak masuk akal (pakai mikroderajat, mis. -7771300)");
     return;
   }
+  // event_id hanya bila tanggal & jam ada (format 4 kolom). Format 2 kolom (tanpa waktu) tidak punya
+  // isi yang unik -> dikirim tanpa event_id, backend memperlakukannya seperti dulu.
+  if (L.tgl[0] && L.jam[0])
+    snprintf(L.eid, sizeof L.eid, "%s-%s-%s-%ld-%ld", DEVICE_ID, L.tgl, L.jam, L.lat, L.lon);
+  else
+    L.eid[0] = 0;
   n_antre++;
   out.printf("TERIMA,%d\n", n_antre);
 }
+
 void cmd_kirim(Stream& out) {
   if (n_antre == 0) { out.println("OK,0,0,0"); return; }
   if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
@@ -114,6 +155,7 @@ void cmd_kirim(Stream& out) {
     JsonObject o = arr.add<JsonObject>();
     o["lat"] = serialized(String(antre[i].lat / 1e6, 6));
     o["lon"] = serialized(String(antre[i].lon / 1e6, 6));
+    if (antre[i].eid[0]) o["event_id"] = antre[i].eid;   // tanda unik lubang (idempotency)
     // waktu dari GPS; "2026-01-01" = lubang uji tanpa GPS -> biarkan backend memakai waktu server
     if (strlen(antre[i].tgl) == 10 && strncmp(antre[i].tgl, "2026-01-01", 10) != 0 && strlen(antre[i].jam) >= 8) {
       char t[32];
@@ -168,6 +210,7 @@ void cmd_kirim(Stream& out) {
   out.printf("OK,%d,%d,%d\n", n_antre, baru, gabung);
   n_antre = 0;
 }
+
 void cmd_db(Stream& out) {
   if (WiFi.status() != WL_CONNECTED) { out.println("GAGAL,wifi belum tersambung"); return; }
   WiFiClientSecure tls;
@@ -216,16 +259,17 @@ void cmd_db(Stream& out) {
   lapor("database: %d dari %d lubang dikirim ke STM32 (MODE_UJI %d), %lu ms, RAM bebas %u",
         n, semua, MODE_UJI, millis() - t0, ESP.getFreeHeap());
 }
+
 void jalankan(Stream& out, char* b) {
-  while (*b == ' ') b++;
-  for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper((unsigned char)*c);
-  for (int n = strlen(b); n > 0 && b[n - 1] == ' '; n--) b[n - 1] = 0;
+  while (*b == ' ') b++;                                       // buang spasi di depan
+  for (char* c = b; *c && *c != ',' && *c != ' '; c++) *c = toupper(*c);   // "ping" = "PING"
+  for (int n = strlen(b); n > 0 && b[n - 1] == ' '; n--) b[n - 1] = 0;    // buang spasi di belakang
   if (!strcmp(b, "PING")) cmd_ping(out);
   else if (!strncmp(b, "LUBANG", 6) && (b[6] == ',' || b[6] == ' ')) cmd_lubang(out, b + 7);
   else if (!strcmp(b, "KIRIM")) cmd_kirim(out);
   else if (!strcmp(b, "BATAL")) { n_antre = 0; out.println("TERIMA,0"); }
   else if (!strcmp(b, "DB?")) cmd_db(out);
-else if (!strcmp(b, "ID?")) {
+  else if (!strcmp(b, "ID?")) {
     out.printf("ID,%d:", n_id);
     for (int i = 0; i < n_id; i++) out.printf(" %ld", (long)id_alat[i]);
     out.println();
@@ -233,6 +277,8 @@ else if (!strcmp(b, "ID?")) {
   else if (!strcmp(b, "LUPA")) { n_id = 0; mem.remove("ids"); out.println("ID,0"); }
   else if (b[0]) out.printf("GAGAL,perintah tidak dikenal: %s\n", b);
 }
+
+// pembaca baris untuk satu port
 struct Pembaca {
   char b[128]; int n = 0;
   void layani(Stream& s) {
@@ -245,6 +291,7 @@ struct Pembaca {
   }
 };
 Pembaca dari_stm32, dari_usb;
+
 void setup() {
   Serial.begin(115200);                                   // USB: catatan + uji manual
   Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);      // ke STM32
@@ -257,11 +304,15 @@ void setup() {
   // ESP32-C3 Super Mini: antena kecil + daya pancar penuh sering membuat koneksi putus-putus.
   // Daya pancar diturunkan (masalah yang banyak dilaporkan pada board ini).
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
-  wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
-  if (WIFI_BACKUP_SSID[0]) wifiMulti.addAP(WIFI_BACKUP_SSID, WIFI_BACKUP_PASSWORD);
+  for (auto& w : DAFTAR_WIFI) if (w.ssid[0]) wifiMulti.addAP(w.ssid, w.pass);
   delay(1500);
-  lapor("PitHole C3 siap");
+  lapor("PitHole C3 siap. Contoh perintah:");
+  lapor("  PING");
+  lapor("  DB?     ID?     LUPA");
+  lapor("MODE_UJI %d, %d id lubang alat diingat", MODE_UJI, n_id);
+  lapor("  LUBANG,2026-10-28,07:15:32,-7771300,110377600   lalu   KIRIM");
 }
+
 void loop() {
   static uint32_t t_coba = 0;
   static bool tersambung = false;
