@@ -1,3 +1,14 @@
+// Perintah (satu baris teks, diakhiri Enter). Bisa juga diketik manual di Serial Monitor USB
+// untuk uji tanpa STM32 -- balasan dikirim ke port asal perintah.
+//   PING                                       -> PONG,<wifi 1/0>,<rssi>,<antre>
+//   LUBANG,<tgl>,<jam>,<lat_mikro>,<lon_mikro> -> TERIMA,<antre>     (masuk antrean, belum dikirim)
+//   KIRIM                                      -> OK,<n>,<baru>,<gabung> | GAGAL,<alasan>
+//   BATAL                                      -> TERIMA,0           (kosongkan antrean)
+//   DB?                                        -> id,lat_mikro,lon_mikro,status / baris... / VERSI,<epoch>
+//                                                 | GAGAL,<alasan>      (status: baru | resolved)
+//   ID?                                        -> daftar id lubang yang pernah dikirim alat ini
+//   LUPA                                       -> hapus daftar id (lakukan sebelum uji 3 putaran yang baru)
+//
 // Tools: Board "ESP32C3 Dev Module", USB CDC On Boot: Enabled.
 // Library: ArduinoJson (Benoit Blanchon) versi 7 -- pasang dari Library Manager.
 #include <WiFi.h>
@@ -139,6 +150,11 @@ void cmd_lubang(Stream& out, char* arg) {
     snprintf(L.eid, sizeof L.eid, "%s-%s-%s-%ld-%ld", DEVICE_ID, L.tgl, L.jam, L.lat, L.lon);
   else
     L.eid[0] = 0;
+  // baris yang sama sudah ada di antrean (STM32 mengirim ulang sebelum antrean sempat terkirim):
+  // jangan dimasukkan dua kali
+  if (L.eid[0])
+    for (int i = 0; i < n_antre; i++)
+      if (!strcmp(antre[i].eid, L.eid)) { out.printf("TERIMA,%d\n", n_antre); return; }
   n_antre++;
   out.printf("TERIMA,%d\n", n_antre);
 }
