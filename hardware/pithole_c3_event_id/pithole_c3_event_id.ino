@@ -1,3 +1,7 @@
+// pithole_c3.ino -- ESP32-C3 Super Mini sebagai "modul internet" alat PitHole.
+//
+//   STM32 --UART (C3 pin 20 = RX, pin 21 = TX)--> ESP32-C3 --WiFi HTTPS--> backend PitHole
+//
 // Perintah (satu baris teks, diakhiri Enter). Bisa juga diketik manual di Serial Monitor USB
 // untuk uji tanpa STM32 -- balasan dikirim ke port asal perintah.
 //   PING                                       -> PONG,<wifi 1/0>,<rssi>,<antre>
@@ -207,22 +211,25 @@ void cmd_kirim(Stream& out) {
   saring["status"] = true;
   saring["details"][0]["action"] = true;
   saring["details"][0]["pothole"]["id"] = true;
+  saring["details"][0]["pothole_id"] = true; // respons duplicate memakai ID di level ini
   DeserializationError e = deserializeJson(hasil, http.getStream(), DeserializationOption::Filter(saring));
   http.end();
   if (e || strcmp(hasil["status"] | "", "success") != 0) {
     out.printf("GAGAL,balasan backend tidak dikenal (%s)\n", e ? e.c_str() : "status bukan success");
     return;
   }
-  int baru = 0, gabung = 0;
+  int baru = 0, gabung = 0, ulang = 0;
   for (JsonObject d : hasil["details"].as<JsonArray>()) {
     const char* a = d["action"] | "";
     if (!strcmp(a, "created")) baru++;
     else if (!strcmp(a, "updated")) gabung++;
+    else if (!strcmp(a, "duplicate")) ulang++;          // event_id sudah pernah diterima: kiriman ulang, tidak dihitung lagi
     int32_t id = d["pothole"]["id"] | 0;
+    if (id <= 0) id = d["pothole_id"] | 0; // retry setelah respons pertama terputus
     id_ingat(id);                            // dibuat ATAU digabung: lubang ini pernah dideteksi alat
     lapor("  %s id=%d", a, (int)id);
   }
-  lapor("kirim %d lubang OK (%d baru, %d digabung) %lu ms", n_antre, baru, gabung, millis() - t0);
+  lapor("kirim %d lubang OK (%d baru, %d digabung, %d kiriman ulang) %lu ms", n_antre, baru, gabung, ulang, millis() - t0);
   out.printf("OK,%d,%d,%d\n", n_antre, baru, gabung);
   n_antre = 0;
 }
