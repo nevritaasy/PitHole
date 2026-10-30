@@ -22,30 +22,19 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <stdarg.h>
-#if __has_include("secrets.h")
-#include "secrets.h"
-#else
-#define WIFI_SSID "karajan"
-#define WIFI_PASSWORD "ISI_PASSWORD_HOTSPOT"
-#define WIFI_BACKUP_SSID ""
-#define WIFI_BACKUP_PASSWORD ""
-#define PITHOLE_DEVICE_KEY ""
-#define PITHOLE_BACKEND "https://example.invalid"
-#endif
-
 
 // ======================= PENGATURAN =======================
-const char* BACKEND   = PITHOLE_BACKEND;
+const char* BACKEND   = "https://pithole-production.up.railway.app";
 const char* DEVICE_ID = "SEPEDA01";
-const char* DEVICE_KEY = PITHOLE_DEVICE_KEY;          // isi kalau backend sudah memakai API key (header X-Device-Key)
+const char* DEVICE_KEY = "";          // isi kalau backend sudah memakai API key (header X-Device-Key)
 // MODE_UJI true  = alat hanya memakai lubang yang PERNAH DIKIRIM ALAT INI (id-nya diingat di
 //                  memori C3, tidak hilang walau dimatikan), untuk uji 3 putaran
 // MODE_UJI false = semua lubang di database (untuk expo / pemakaian biasa)
 const bool MODE_UJI = true;
 // WiFi: dari daftar ini, yang sinyalnya PALING KUAT yang dipakai (bukan urutan).
 struct { const char* ssid; const char* pass; } DAFTAR_WIFI[] = {
-  {WIFI_SSID, WIFI_PASSWORD},
-  {WIFI_BACKUP_SSID, WIFI_BACKUP_PASSWORD},
+  {"UGM-Guest", "ugmjaya0423"},
+  {"isti",      "12345678"},     // cadangan: hotspot HP
 };
 // ==========================================================
 
@@ -327,7 +316,7 @@ void setup() {
   // ESP32-C3 Super Mini: antena kecil + daya pancar penuh sering membuat koneksi putus-putus.
   // Daya pancar diturunkan (masalah yang banyak dilaporkan pada board ini).
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
-  for (auto& w : DAFTAR_WIFI) if (w.ssid[0]) wifiMulti.addAP(w.ssid, w.pass);
+  for (auto& w : DAFTAR_WIFI) wifiMulti.addAP(w.ssid, w.pass);
   delay(1500);
   lapor("PitHole C3 siap. Contoh perintah:");
   lapor("  PING");
